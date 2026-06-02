@@ -1,0 +1,63 @@
+name: AWS ECR Push
+
+on:
+  push:
+    branches: ['main']
+  release:
+    types: ['published']
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    name: Push to ECR
+    runs-on: ubuntu-latest
+
+    # These permissions are needed to interact with GitHub's OIDC Token endpoint.
+    permissions:
+      id-token: write
+      contents: read
+
+    steps:
+    - name: Auth ECR
+      id: ecr-auth
+      uses: portx-phim/shared-actions/ecr-auth@main
+      with:
+        aws-account: '549231858676'
+
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Set up QEMU
+      uses: docker/setup-qemu-action@v3
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: Extract maven version (if present)
+      id: maven_version
+      if: ${{ hashFiles('pom.xml') != '' }}
+      uses: mikefarah/yq@master
+      with:
+        cmd: yq '.project.version' pom.xml -r
+
+    - name: Extract nodejs version (if present)
+      id: node_version
+      if: ${{ hashFiles('package.json') != '' }}
+      uses: sergeysova/jq-action@v2
+      with:
+        cmd: jq '.version' package.json -r
+
+    - name: Build and push Docker image
+      uses: docker/build-push-action@v5
+      with:
+        context: .
+        push: true
+        platforms: linux/amd64
+        tags: ${{ steps.ecr-auth.outputs.images-repo-url }}/${{ github.event.repository.name }}:${{
+          steps.maven_version.outputs.result ||
+          steps.node_version.outputs.value ||
+          github.sha
+          }}
